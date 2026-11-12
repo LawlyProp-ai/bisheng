@@ -1,6 +1,6 @@
 # BiSheng 全新部署
 
-需要已启动的 Docker 和 Docker Compose。推荐 Compose V2；也支持具备 profiles 和完成依赖能力的 `docker-compose`。
+需要已启动的 Docker 和 Docker Compose（推荐 Compose V2；也支持具备 profiles 和完成依赖能力的 `docker-compose`），或 Podman 加 `podman-compose`。
 
 从代码根目录执行：
 
@@ -10,7 +10,13 @@ bash docker/install.sh
 
 脚本首次将 `.env.example` 复制为 `.env`，校验配置，使用默认公共账号登录 `cr.dataelem.com`，拉取镜像并执行 `up -d`。默认不启用 Gateway，也不会询问是否启用。已有 `.env` 会保留，不自动覆盖或合并。部署需要 Bash 和常用系统命令，无需宿主机 Python。
 
-账号在 `.env` 的 `CR_REGISTRY_USERNAME` / `CR_REGISTRY_PASSWORD` 中配置；默认使用提供的公共账号，密码通过 `--password-stdin` 传入 Docker。`--prepare-only` 只生成、校验配置，不登录、不拉取、不启动服务。
+账号在 `.env` 的 `CR_REGISTRY_USERNAME` / `CR_REGISTRY_PASSWORD` 中配置；默认使用提供的公共账号，密码通过 `--password-stdin` 传入 Docker 或 Podman。`--prepare-only` 只生成、校验配置，不登录、不拉取、不启动服务。
+
+## Podman（可选）
+
+宿主机使用 Podman 时，`docker` 往往只是 Podman 的兼容入口。这时 `docker login` 会把凭据写进 Podman 的认证文件，而 Docker Compose 插件读取 `~/.docker/config.json`，于是出现"登录成功、拉取却报 `unauthorized`（401）"。安装脚本在检测到 `docker --version` 为 Podman、且系统已安装 `podman-compose` 时，会自动改用 `podman-compose` 并执行 `podman login`，让登录与拉取共用同一凭据库。
+
+需要预装 `podman-compose`（例如 `uv tool install podman-compose`，或发行版提供的 `podman-compose` 包，建议 1.5+）。脚本不会自动安装它；未安装时仍按 Docker Compose 流程执行。
 
 ## Gateway（可选）
 

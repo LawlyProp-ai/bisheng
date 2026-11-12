@@ -25,9 +25,20 @@ while [[ $# -gt 0 ]]; do
     *) die "未知参数：$1" ;;
   esac
 done
-if docker compose version >/dev/null 2>&1; then COMPOSE=(docker compose);
-elif command -v docker-compose >/dev/null 2>&1; then COMPOSE=(docker-compose);
-else die "请安装 Docker Compose（推荐 V2，也支持 docker-compose 命令入口）"; fi
+# A `docker` shim backed by Podman stores `docker login` credentials in Podman's
+# auth file, while the Docker Compose plugin reads ${DOCKER_CONFIG:-$HOME/.docker},
+# so pulls would come back 401. podman-compose pulls through Podman and therefore
+# shares the credential store with `podman login`.
+docker_is_podman() { docker --version 2>/dev/null | grep -qi podman; }
+if docker_is_podman && command -v podman-compose >/dev/null 2>&1; then
+  COMPOSE=(podman-compose); LOGIN_CLI=(podman)
+elif docker compose version >/dev/null 2>&1; then
+  COMPOSE=(docker compose); LOGIN_CLI=(docker)
+elif command -v docker-compose >/dev/null 2>&1; then
+  COMPOSE=(docker-compose); LOGIN_CLI=(docker)
+elif command -v podman-compose >/dev/null 2>&1; then
+  COMPOSE=(podman-compose); LOGIN_CLI=(podman)
+else die "请安装 Docker Compose（推荐 V2，也支持 docker-compose 或 podman-compose 命令入口）"; fi
 # An existing .env is never replaced or merged automatically.
 [[ -f "$ENV_FILE" ]] || cp "${SCRIPT_DIR}/.env.example" "$ENV_FILE"
 chmod 600 "$ENV_FILE"
@@ -97,7 +108,7 @@ if [[ "$PREPARE_ONLY" = true ]]; then printf '配置已生成并通过 Compose �
 registry_user="$(env_get "$ENV_FILE" CR_REGISTRY_USERNAME)"
 registry_password="$(env_get "$ENV_FILE" CR_REGISTRY_PASSWORD)"
 printf '%s\n' "${registry_password:-dataelem}" | \
-  docker login cr.dataelem.com --username "${registry_user:-docker}" --password-stdin \
+  "${LOGIN_CLI[@]}" login cr.dataelem.com --username "${registry_user:-docker}" --password-stdin \
   || die "CR 镜像源登录失败，请检查网络或 .env 中的 CR_REGISTRY_USERNAME / CR_REGISTRY_PASSWORD"
 unset registry_password
 # Pull first so missing images stop deployment before existing services change.

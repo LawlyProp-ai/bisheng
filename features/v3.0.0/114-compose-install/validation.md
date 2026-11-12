@@ -46,3 +46,15 @@ socket-proxy 上游有双架构。详见 [镜像核对](vibe-image-audit.md)。
   源码版本不匹配及未发布来源；并用真实库存/应用清单工具生成 CR 双架构清单。
 - 未实际触发 GitHub Actions、构建发布镜像或向仓库写入；历史缺失的 CR tag 没有
   被本次代码修改自动补齐。详见 [触发与发布流程](runtime-image-cicd.md)。
+
+## 2026-11-12 Podman 入口
+
+- `docker/install.sh`：当 `docker --version` 为 Podman 且系统存在 `podman-compose` 时，改用
+  `podman-compose` 并通过 `podman login` 登录（两者共用 Podman 凭据库）；否则维持原
+  `docker compose` → `docker-compose` 顺序。`docker/README.md` 增加 Podman 说明。
+- 安装器测试新增 `A Podman-backed docker CLI uses podman-compose and podman login`；
+  `bash scripts/tests/compose/test-install.sh` 16 项全过。
+- 真机 Podman 5.7.0 + podman-compose 1.6.0：`bash docker/install.sh --prepare-only` 与
+  完整安装均返回 0；13 个服务启动，前端 `:3001` 返回 200，后端 `/health` 返回 200。
+- 根因记录：Podman 兼容入口下的 `docker login` 写入 Podman 认证文件，而 Docker Compose
+  插件只读 `~/.docker/config.json`，此前导致 `compose pull` 返回 401；切换后不复现。

@@ -22,6 +22,10 @@ new_case() {
 #!/usr/bin/env bash
 set -euo pipefail
 printf '%s\t' "$@" >> "$INSTALL_TEST_LOG"; printf '\n' >> "$INSTALL_TEST_LOG"
+if [[ "${1:-}" = --version ]]; then
+  if [[ "${INSTALL_TEST_PODMAN:-}" = yes ]]; then printf 'podman version 5.7.0\n'; else printf 'Docker version 27.0.0, build test\n'; fi
+  exit 0
+fi
 if [[ "$*" = 'compose version' && "${INSTALL_TEST_LEGACY:-}" = yes ]]; then exit 1; fi
 if [[ "${1:-}" = login ]]; then
   IFS= read -r supplied_password
@@ -31,6 +35,21 @@ fi
 if [[ "${INSTALL_TEST_FAIL:-}" = pull && " $* " = *' pull '* ]]; then exit 17; fi
 DOCKER
   cp "${CASE_ROOT}/bin/docker" "${CASE_ROOT}/bin/docker-compose"
+  cat > "${CASE_ROOT}/bin/podman-compose" <<'PODMAN_COMPOSE'
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'podman-compose\t' >> "$INSTALL_TEST_LOG"; printf '%s\t' "$@" >> "$INSTALL_TEST_LOG"; printf '\n' >> "$INSTALL_TEST_LOG"
+PODMAN_COMPOSE
+  cat > "${CASE_ROOT}/bin/podman" <<'PODMAN'
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'podman\t' >> "$INSTALL_TEST_LOG"; printf '%s\t' "$@" >> "$INSTALL_TEST_LOG"; printf '\n' >> "$INSTALL_TEST_LOG"
+if [[ "${1:-}" = login ]]; then
+  IFS= read -r supplied_password
+  [[ "$supplied_password" = "${INSTALL_TEST_EXPECTED_PASSWORD:-dataelem}" ]] || exit 18
+  [[ "${INSTALL_TEST_FAIL:-}" != login ]] || exit 19
+fi
+PODMAN
   cat > "${CASE_ROOT}/bin/python" <<'BLOCK'
 #!/usr/bin/env bash
 printf 'Python called\n' > "$INSTALL_TEST_PYTHON"
@@ -43,7 +62,8 @@ run_install() {
   : > "${CASE_ROOT}/calls"
   if PATH="${CASE_ROOT}/bin:$PATH" INSTALL_TEST_LOG="${CASE_ROOT}/calls" \
     INSTALL_TEST_PYTHON="${CASE_ROOT}/python-called" INSTALL_TEST_FAIL="${TEST_FAIL:-}" \
-    INSTALL_TEST_LEGACY="${TEST_LEGACY:-}" INSTALL_TEST_EXPECTED_PASSWORD="${TEST_PASSWORD:-dataelem}" \
+    INSTALL_TEST_LEGACY="${TEST_LEGACY:-}" INSTALL_TEST_PODMAN="${TEST_PODMAN:-}" \
+    INSTALL_TEST_EXPECTED_PASSWORD="${TEST_PASSWORD:-dataelem}" \
     /bin/bash "${CASE_DIR}/install.sh" "$@" </dev/null >"${CASE_ROOT}/out" 2>"${CASE_ROOT}/err"; then result=0; else result=$?; fi
 }
 ok() { [[ $result = 0 ]] || { cat "${CASE_ROOT}/err" >&2; fail 'Installer failed'; }; }
@@ -185,6 +205,16 @@ TEST_LEGACY=yes run_install --prepare-only
 ok
 contains "${CASE_ROOT}/calls" $'config\t--quiet\t'
 pass 'Both docker compose and standalone docker-compose command names are supported'
+
+new_case
+TEST_PODMAN=yes run_install
+ok
+contains "${CASE_ROOT}/calls" $'podman-compose\t--env-file\t'
+contains "${CASE_ROOT}/calls" $'config\t--quiet\t'
+contains "${CASE_ROOT}/calls" $'podman\tlogin\tcr.dataelem.com\t--username\tdocker\t--password-stdin\t'
+absent "${CASE_ROOT}/calls" $'compose\tversion\t'
+awk '/^podman\tlogin\t/ { login = NR } /^podman-compose\t/ && /\tpull\t/ { pull = NR } /^podman-compose\t/ && /\tup\t-d\t/ { up = NR } END { exit !(login && pull > login && up > pull) }' "${CASE_ROOT}/calls" || fail 'Podman deploy is not login then pull then up -d'
+pass 'A Podman-backed docker CLI uses podman-compose and podman login'
 
 new_case
 printf 'CUSTOM_SETTING=$(touch "%s")\n' "${CASE_ROOT}/must-not-exist" > "${CASE_DIR}/.env"
